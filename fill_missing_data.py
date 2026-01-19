@@ -8,7 +8,8 @@ import json
 import time
 import io
 import config
-from data_worker import get_implied_volatility, calculate_greeks
+from data_worker import get_implied_volatility, calculate_greeks, get_smart_trend
+from database import get_latest_snapshot
 
 DB_NAME = "option_chain.db"
 
@@ -59,7 +60,7 @@ def process_symbol(config_item, conn):
 
     all_data = {} # (interval) -> {strike -> {ce_data, pe_data}}
 
-    print(f"Fetching data for {symbol}...")
+    print(f"Fetching Trendlyne data for {symbol}...")
     for strike in strikes:
         print(f"  Strike {strike}...", end="", flush=True)
         ce_json = fetch_trendlyne_data(trendlyne_expiry, trendlyne_symbol, strike, "call")
@@ -91,14 +92,29 @@ def process_symbol(config_item, conn):
 
     print(f"Processing {len(intervals)} intervals for {symbol}...")
     for interval_str in intervals:
+        # Snapshot time is the END of the interval
         end_time_str = interval_str.split(" TO ")[1]
         timestamp_str = f"2026-01-19 {end_time_str}:00"
+
+        # Check if snapshot already exists
+        cursor.execute("SELECT 1 FROM option_chain_snapshots WHERE timestamp=? AND symbol=? AND expiry=?", (timestamp_str, symbol, expiry))
+        if cursor.fetchone():
+            print(f"  Skipping {timestamp_str} (already exists)")
+            continue
+
         current_time = datetime.datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
         T = get_time_to_expiry_at(expiry, current_time)
 
+        # Fetch previous snapshot FROM DATABASE to calculate delta (handles 1m/5m gaps correctly)
+        _, _, prev_df = get_latest_snapshot(symbol, expiry, same_day_only=True)
+        prev_data_map = {}
+        if prev_df is not None:
+            for _, row in prev_df.iterrows():
+                prev_data_map[row['strike']] = row
+
         strike_data_list = all_data[interval_str]
 
-        # Estimate spot price
+        # Estimate spot price from Trendlyne interval close prices
         spot_price = 0
         for test_strike in config_item['spot_calc_strikes']:
             if test_strike in strike_data_list and 'ce' in strike_data_list[test_strike] and 'pe' in strike_data_list[test_strike]:
@@ -118,21 +134,36 @@ def process_symbol(config_item, conn):
 
             c_ltp = ce.get('close_price')
             c_oi = ce.get('oi', 0)
-            # Use interval delta directly from Trendlyne
-            c_chng_oi = ce.get('oi_change_gross', 0)
-            c_trend = ce.get('buildup') or "Neutral"
 
             p_ltp = pe.get('close_price')
             p_oi = pe.get('oi', 0)
-            p_chng_oi = pe.get('oi_change_gross', 0)
-            p_trend = pe.get('buildup') or "Neutral"
 
             if c_ltp is None or p_ltp is None: continue
+
+            # Dynamic delta calculation relative to whatever is in DB
+            if strike in prev_data_map:
+                prev_item = prev_data_map[strike]
+                c_chng_oi = c_oi - prev_item.get('c_oi', c_oi)
+                p_chng_oi = p_oi - prev_item.get('p_oi', p_oi)
+                c_chng_price = c_ltp - prev_item.get('c_ltp', c_ltp)
+                p_chng_price = p_ltp - prev_item.get('p_ltp', p_ltp)
+            else:
+                # If first snapshot or no prev data, use Trendlyne's gross change
+                # (which is the change since previous 5-min interval)
+                c_chng_oi = ce.get('oi_change_gross', 0)
+                p_chng_oi = pe.get('oi_change_gross', 0)
+                # Trendlyne JSON doesn't give price change easily for first, so Neutral
+                c_chng_price = 0
+                p_chng_price = 0
 
             c_iv = get_implied_volatility(c_ltp, spot_price, strike, T, 0.07, 'CE') * 100
             p_iv = get_implied_volatility(p_ltp, spot_price, strike, T, 0.07, 'PE') * 100
             c_greeks = calculate_greeks(spot_price, strike, T, 0.07, c_iv/100, 'CE')
             p_greeks = calculate_greeks(spot_price, strike, T, 0.07, p_iv/100, 'PE')
+
+            # Trend calculation based on interval momentum
+            c_trend = get_smart_trend(c_chng_price, c_chng_oi)
+            p_trend = get_smart_trend(p_chng_price, p_chng_oi)
 
             clean_data.append({
                 'strike': strike, 'c_ltp': c_ltp, 'c_oi': c_oi, 'c_chng_oi': c_chng_oi, 'c_iv': round(c_iv, 2),
@@ -143,21 +174,19 @@ def process_symbol(config_item, conn):
 
         if clean_data:
             df = pd.DataFrame(clean_data)
-            # Use INSERT OR IGNORE to prevent overwriting existing 1-minute data
             cursor.execute('''
                 INSERT  INTO option_chain_snapshots (timestamp, symbol, expiry, spot_price, data_json)
                 VALUES (?, ?, ?, ?, ?)
             ''', (timestamp_str, symbol, expiry, spot_price, df.to_json(orient='records')))
-    conn.commit()
+            conn.commit()
+            print(f"  Saved snapshot for {timestamp_str}")
 
 def main():
     conn = sqlite3.connect(DB_NAME)
-
     for config_item in TRACKED_SYMBOLS:
         process_symbol(config_item, conn)
-
     conn.close()
-    print("Database filled successfully.")
+    print("Database filling complete.")
 
 if __name__ == "__main__":
     main()
