@@ -118,6 +118,11 @@ def main():
                     df_hist = pd.DataFrame(processed_hist)
                     df_hist.set_index('Time', inplace=True)
 
+                    # Calculate cumulative changes for trend lines
+                    df_hist['Call OI Cum Chng'] = df_hist['Call Chng OI'].cumsum()
+                    df_hist['Put OI Cum Chng'] = df_hist['Put Chng OI'].cumsum()
+                    df_hist['Total OI Cum Chng'] = df_hist['Total Chng OI'].cumsum()
+
                     # Layout like the requested image
                     # Row 1: Change in OI
                     col_bar1, col_line1 = st.columns([1, 4])
@@ -134,9 +139,9 @@ def main():
                         st.write("**Change in OI Trend**")
 
                         fig1 = make_subplots(specs=[[{"secondary_y": True}]])
-                        fig1.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Call Chng OI'], name="Call Chng OI", line=dict(color='cyan')), secondary_y=False)
-                        fig1.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Put Chng OI'], name="Put Chng OI", line=dict(color='red')), secondary_y=False)
-                        fig1.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Total Chng OI'], name="Total Chng OI", line=dict(color='orange', dash='dash')), secondary_y=False)
+                        fig1.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Call OI Cum Chng'], name="Call OI Chng", line=dict(color='cyan')), secondary_y=False)
+                        fig1.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Put OI Cum Chng'], name="Put OI Chng", line=dict(color='red')), secondary_y=False)
+                        fig1.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Total OI Cum Chng'], name="Total OI Chng", line=dict(color='orange', dash='dash')), secondary_y=False)
                         fig1.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Spot Price'], name="Spot Price", line=dict(color='#ffd700', dash='dot')), secondary_y=True)
 
                         fig1.update_layout(height=400, margin=dict(l=0, r=0, t=0, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
