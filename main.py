@@ -256,7 +256,7 @@ def main():
                             elif val == 'Long Unwinding': color = '#3498db' # Blue (Bullish)
                             return f'background-color: {color}; color: black'
 
-                        styled_df = df_trend_hist.style.applymap(color_trend_ce, subset=['Call Trend']).applymap(color_trend_pe, subset=['Put Trend'])
+                        styled_df = df_trend_hist.style.map(color_trend_ce, subset=['Call Trend']).map(color_trend_pe, subset=['Put Trend'])
                         st.table(styled_df)
                     else:
                         st.info("No trend history available yet for this strike.")

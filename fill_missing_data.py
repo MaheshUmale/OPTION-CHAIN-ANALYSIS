@@ -58,7 +58,7 @@ def process_symbol(config_item, conn):
     strikes = config_item['strikes']
 
     all_data = {} # (interval) -> {strike -> {ce_data, pe_data}}
-    prev_day_oi = {} # {strike -> {ce_oi, pe_oi}}
+    prev_oi = {} # {strike -> {ce_oi, pe_oi}}
 
     print(f"Fetching data for {symbol}...")
     for strike in strikes:
@@ -72,9 +72,9 @@ def process_symbol(config_item, conn):
             ce_contract = ce_json.get('body', {}).get('contractData', {})
             pe_contract = pe_json.get('body', {}).get('contractData', {})
 
-            prev_day_oi[strike] = {
-                'ce': ce_contract.get('prev_day_open_interest', 0),
-                'pe': pe_contract.get('prev_day_open_interest', 0)
+            prev_oi[strike] = {
+                'ce': ce_contract.get('oi_change_gross', 0),
+                'pe': pe_contract.get('oi_change_gross', 0)
             }
 
             ce_intervals = ce_json.get('body', {}).get('data_v2', [])
@@ -127,12 +127,12 @@ def process_symbol(config_item, conn):
 
             c_ltp = ce.get('close_price')
             c_oi = ce.get('oi', 0)
-            c_chng_oi = c_oi - prev_day_oi.get(strike, {}).get('ce', 0)
+            c_chng_oi =  prev_oi.get(strike, {}).get('ce', 0)
             c_trend = ce.get('buildup') or "Neutral"
 
             p_ltp = pe.get('close_price')
             p_oi = pe.get('oi', 0)
-            p_chng_oi = p_oi - prev_day_oi.get(strike, {}).get('pe', 0)
+            p_chng_oi = prev_oi.get(strike, {}).get('pe', 0)
             p_trend = pe.get('buildup') or "Neutral"
 
             if c_ltp is None or p_ltp is None: continue
@@ -153,7 +153,7 @@ def process_symbol(config_item, conn):
             df = pd.DataFrame(clean_data)
             # Use INSERT OR IGNORE to prevent overwriting existing 1-minute data
             cursor.execute('''
-                INSERT OR IGNORE INTO option_chain_snapshots (timestamp, symbol, expiry, spot_price, data_json)
+                INSERT  INTO option_chain_snapshots (timestamp, symbol, expiry, spot_price, data_json)
                 VALUES (?, ?, ?, ?, ?)
             ''', (timestamp_str, symbol, expiry, spot_price, df.to_json(orient='records')))
     conn.commit()
