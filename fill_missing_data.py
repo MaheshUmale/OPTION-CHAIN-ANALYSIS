@@ -26,8 +26,8 @@ TRACKED_SYMBOLS = [
         "expiry": "2026-01-27",
         "trendlyne_symbol": "BANKNIFTY",
         "trendlyne_expiry": "27-jan-2026-near",
-        "strikes": range(52000, 54050, 100),
-        "spot_calc_strikes": [53000, 52900, 53100]
+        "strikes": range(59000, 61050, 100),
+        "spot_calc_strikes": [60000, 59900, 60100]
     }
 ]
 
@@ -162,9 +162,9 @@ def main():
     cursor = conn.cursor()
 
     # Initialize/Reset table
-    cursor.execute('DROP TABLE IF EXISTS option_chain_snapshots')
+    # cursor.execute('DROP TABLE IF EXISTS option_chain_snapshots')
     cursor.execute('''
-        CREATE TABLE option_chain_snapshots (
+        CREATE TABLE IF NOT EXISTS option_chain_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp DATETIME,
             symbol TEXT,
