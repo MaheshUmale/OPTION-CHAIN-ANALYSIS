@@ -64,6 +64,21 @@ def get_latest_snapshot(symbol, expiry):
         return snapshot_time, spot_price, data
     return None, None, None
 
+def get_historical_snapshots(symbol, expiry):
+    """
+    Retrieves historical snapshots for a given symbol and expiry.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    query = '''
+        SELECT timestamp, spot_price, data_json
+        FROM option_chain_snapshots
+        WHERE symbol = ? AND expiry = ?
+        ORDER BY timestamp ASC
+    '''
+    df = pd.read_sql_query(query, conn, params=(symbol, expiry))
+    conn.close()
+    return df
+
 if __name__ == "__main__":
     init_db()
     print("Database initialized.")

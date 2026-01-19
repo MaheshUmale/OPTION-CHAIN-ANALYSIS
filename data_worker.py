@@ -78,58 +78,61 @@ def process_and_save():
 
             print(f"[{datetime.datetime.now()}] Fetching {symbol} for {expiry}")
 
-            spot_price = engine.get_spot_price(symbol)
-            if spot_price == 0:
-                print(f"  -> Failed to get spot price for {symbol}")
-                continue
+            try:
+                spot_price = engine.get_spot_price(symbol)
+                if spot_price == 0:
+                    print(f"  -> Failed to get spot price for {symbol}")
+                    continue
 
-            chain_data = engine.get_option_chain(symbol, expiry)
-            if not chain_data:
-                print(f"  -> Failed to get chain data for {symbol}")
-                continue
+                chain_data = engine.get_option_chain(symbol, expiry)
+                if not chain_data:
+                    print(f"  -> Failed to get chain data for {symbol}")
+                    continue
 
-            T = get_time_to_expiry(expiry)
-            clean_data = []
+                T = get_time_to_expiry(expiry)
+                clean_data = []
 
-            for entry in chain_data:
-                strike = entry['strike_price']
-                ce_data = entry.get('call_options')
-                pe_data = entry.get('put_options')
+                for entry in chain_data:
+                    strike = entry['strike_price']
+                    ce_data = entry.get('call_options')
+                    pe_data = entry.get('put_options')
 
-                if not ce_data or not pe_data: continue
+                    if not ce_data or not pe_data: continue
 
-                ce_market = ce_data['market_data']
-                pe_market = pe_data['market_data']
+                    ce_market = ce_data['market_data']
+                    pe_market = pe_data['market_data']
 
-                c_ltp = ce_market.get('ltp', 0)
-                c_oi = ce_market.get('oi', 0)
-                c_chng_oi = c_oi - ce_market.get('prev_oi', 0)
-                c_chng = c_ltp - ce_market.get('close_price', 0)
+                    c_ltp = ce_market.get('ltp', 0)
+                    c_oi = ce_market.get('oi', 0)
+                    c_chng_oi = c_oi - ce_market.get('prev_oi', 0)
+                    c_chng = c_ltp - ce_market.get('close_price', 0)
 
-                p_ltp = pe_market.get('ltp', 0)
-                p_oi = pe_market.get('oi', 0)
-                p_chng_oi = p_oi - pe_market.get('prev_oi', 0)
-                p_chng = p_ltp - pe_market.get('close_price', 0)
+                    p_ltp = pe_market.get('ltp', 0)
+                    p_oi = pe_market.get('oi', 0)
+                    p_chng_oi = p_oi - pe_market.get('prev_oi', 0)
+                    p_chng = p_ltp - pe_market.get('close_price', 0)
 
-                c_iv = get_implied_volatility(c_ltp, spot_price, strike, T, config.RISK_FREE_RATE, 'CE') * 100
-                p_iv = get_implied_volatility(p_ltp, spot_price, strike, T, config.RISK_FREE_RATE, 'PE') * 100
+                    c_iv = get_implied_volatility(c_ltp, spot_price, strike, T, config.RISK_FREE_RATE, 'CE') * 100
+                    p_iv = get_implied_volatility(p_ltp, spot_price, strike, T, config.RISK_FREE_RATE, 'PE') * 100
 
-                c_greeks = calculate_greeks(spot_price, strike, T, config.RISK_FREE_RATE, c_iv/100, 'CE')
-                p_greeks = calculate_greeks(spot_price, strike, T, config.RISK_FREE_RATE, p_iv/100, 'PE')
+                    c_greeks = calculate_greeks(spot_price, strike, T, config.RISK_FREE_RATE, c_iv/100, 'CE')
+                    p_greeks = calculate_greeks(spot_price, strike, T, config.RISK_FREE_RATE, p_iv/100, 'PE')
 
-                c_trend = get_smart_trend(c_chng, c_chng_oi)
-                p_trend = get_smart_trend(p_chng, p_chng_oi)
+                    c_trend = get_smart_trend(c_chng, c_chng_oi)
+                    p_trend = get_smart_trend(p_chng, p_chng_oi)
 
-                clean_data.append({
-                    'strike': strike, 'c_ltp': c_ltp, 'c_oi': c_oi, 'c_chng_oi': c_chng_oi, 'c_iv': round(c_iv, 2),
-                    'c_delta': c_greeks['delta'], 'c_theta': c_greeks['theta'], 'c_trend': c_trend,
-                    'p_ltp': p_ltp, 'p_oi': p_oi, 'p_chng_oi': p_chng_oi, 'p_iv': round(p_iv, 2),
-                    'p_delta': p_greeks['delta'], 'p_theta': p_greeks['theta'], 'p_trend': p_trend
-                })
+                    clean_data.append({
+                        'strike': strike, 'c_ltp': c_ltp, 'c_oi': c_oi, 'c_chng_oi': c_chng_oi, 'c_iv': round(c_iv, 2),
+                        'c_delta': c_greeks['delta'], 'c_theta': c_greeks['theta'], 'c_trend': c_trend,
+                        'p_ltp': p_ltp, 'p_oi': p_oi, 'p_chng_oi': p_chng_oi, 'p_iv': round(p_iv, 2),
+                        'p_delta': p_greeks['delta'], 'p_theta': p_greeks['theta'], 'p_trend': p_trend
+                    })
 
-            df = pd.DataFrame(clean_data)
-            save_snapshot(symbol, expiry, spot_price, df)
-            print(f"  -> Saved {len(df)} rows for {symbol}")
+                df = pd.DataFrame(clean_data)
+                save_snapshot(symbol, expiry, spot_price, df)
+                print(f"  -> Saved {len(df)} rows for {symbol}")
+            except Exception as e:
+                print(f"  -> Error processing {symbol}: {e}")
 
         time.sleep(60) # Refresh every minute
 

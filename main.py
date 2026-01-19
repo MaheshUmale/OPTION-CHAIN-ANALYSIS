@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 import datetime
 import time
-from database import get_latest_snapshot, init_db
+import io
+from database import get_latest_snapshot, get_historical_snapshots, init_db
 import config
 
 # --- PAGE CONFIG ---
@@ -42,7 +43,12 @@ def main():
                 # Summary Metrics
                 # Re-calculate PCR and Support/Resistance from the retrieved data
                 pcr = round(df['p_oi'].sum() / df['c_oi'].sum(), 2) if df['c_oi'].sum() > 0 else 0
-                sentiment = "BULLISH" if pcr > 1.2 else "BEARISH" if pcr < 0.6 else "NEUTRAL"
+                if pcr >= 1.2:
+                    sentiment = "BULLISH"
+                elif pcr <= 0.7:
+                    sentiment = "BEARISH"
+                else:
+                    sentiment = "NEUTRAL"
 
                 max_ce_oi_idx = df['c_oi'].idxmax()
                 max_pe_oi_idx = df['p_oi'].idxmax()
@@ -73,6 +79,66 @@ def main():
                 df_filtered = df_display[(df_display['Strike Price'] >= atm_strike - 500) & (df_display['Strike Price'] <= atm_strike + 500)]
 
                 st.dataframe(df_filtered, use_container_width=True, height=600)
+
+                # --- Charts Section ---
+                st.divider()
+                st.subheader("Time-Based Analysis & OI Distribution")
+
+                # Fetch historical data
+                hist_df = get_historical_snapshots(symbol, expiry)
+
+                if not hist_df.empty:
+                    processed_hist = []
+                    for _, row in hist_df.iterrows():
+                        try:
+                            data = pd.read_json(io.StringIO(row['data_json']))
+                            processed_hist.append({
+                                'Time': pd.to_datetime(row['timestamp']),
+                                'Spot Price': row['spot_price'],
+                                'Call OI': data['c_oi'].sum(),
+                                'Put OI': data['p_oi'].sum(),
+                                'Call Chng OI': data['c_chng_oi'].sum(),
+                                'Put Chng OI': data['p_chng_oi'].sum(),
+                            })
+                        except:
+                            continue
+
+                    df_hist = pd.DataFrame(processed_hist)
+                    df_hist.set_index('Time', inplace=True)
+
+                    # Layout like the requested image
+                    # Row 1: Change in OI
+                    col_bar1, col_line1 = st.columns([1, 4])
+
+                    with col_bar1:
+                        st.write("**Change in OI**")
+                        latest_chng = {
+                            'Type': ['CALL', 'PUT'],
+                            'Value': [df['c_chng_oi'].sum(), df['p_chng_oi'].sum()]
+                        }
+                        st.bar_chart(pd.DataFrame(latest_chng).set_index('Type'))
+
+                    with col_line1:
+                        st.write("**Change in OI Trend**")
+                        # We use two separate charts if dual axis is not easy, or combine them
+                        # To simulate dual axis, we can show them together or in tabs
+                        # Here we show OI trends and Price trend
+                        st.line_chart(df_hist[['Call Chng OI', 'Put Chng OI', 'Spot Price']])
+
+                    # Row 2: Total OI
+                    col_bar2, col_line2 = st.columns([1, 4])
+
+                    with col_bar2:
+                        st.write("**Total OI**")
+                        latest_total = {
+                            'Type': ['CALL', 'PUT'],
+                            'Value': [df['c_oi'].sum(), df['p_oi'].sum()]
+                        }
+                        st.bar_chart(pd.DataFrame(latest_total).set_index('Type'))
+
+                    with col_line2:
+                        st.write("**Total OI Trend**")
+                        st.line_chart(df_hist[['Call OI', 'Put OI', 'Spot Price']])
 
             time.sleep(refresh_rate)
             st.rerun()
