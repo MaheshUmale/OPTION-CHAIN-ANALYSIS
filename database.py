@@ -13,7 +13,7 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS option_chain_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            timestamp DATETIME,
             symbol TEXT,
             expiry TEXT,
             spot_price REAL,
@@ -33,11 +33,16 @@ def save_snapshot(symbol, expiry, spot_price, df_data):
     # Convert DataFrame to JSON for storage
     data_json = df_data.to_json(orient='records')
 
+    # Get current IST time
+    import datetime
+    ist_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5, minutes=30)
+    timestamp_str = ist_now.strftime('%Y-%m-%d %H:%M:%S')
+
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO option_chain_snapshots (symbol, expiry, spot_price, data_json)
-        VALUES (?, ?, ?, ?)
-    ''', (symbol, expiry, spot_price, data_json))
+        INSERT INTO option_chain_snapshots (timestamp, symbol, expiry, spot_price, data_json)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (timestamp_str, symbol, expiry, spot_price, data_json))
 
     conn.commit()
     conn.close()

@@ -3,6 +3,8 @@ import pandas as pd
 import datetime
 import time
 import io
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from database import get_latest_snapshot, get_historical_snapshots, init_db
 import config
 
@@ -61,7 +63,8 @@ def main():
                 col3.metric("Support", f"{support}")
                 col4.metric("Resistance", f"{resistance}")
 
-                st.write(f"Data Last Captured: {timestamp} | Current Time: {datetime.datetime.now().strftime('%H:%M:%S')}")
+                ist_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5, minutes=30)
+                st.write(f"Data Last Captured: {timestamp} | Current Time (IST): {ist_now.strftime('%H:%M:%S')}")
 
                 # Rename columns for display
                 display_cols = {
@@ -92,13 +95,21 @@ def main():
                     for _, row in hist_df.iterrows():
                         try:
                             data = pd.read_json(io.StringIO(row['data_json']))
+                            c_oi_sum = data['c_oi'].sum()
+                            p_oi_sum = data['p_oi'].sum()
+                            c_chng_oi_sum = data['c_chng_oi'].sum()
+                            p_chng_oi_sum = data['p_chng_oi'].sum()
+
                             processed_hist.append({
                                 'Time': pd.to_datetime(row['timestamp']),
                                 'Spot Price': row['spot_price'],
-                                'Call OI': data['c_oi'].sum(),
-                                'Put OI': data['p_oi'].sum(),
-                                'Call Chng OI': data['c_chng_oi'].sum(),
-                                'Put Chng OI': data['p_chng_oi'].sum(),
+                                'Call OI': c_oi_sum,
+                                'Put OI': p_oi_sum,
+                                'Total OI': c_oi_sum + p_oi_sum,
+                                'Call Chng OI': c_chng_oi_sum,
+                                'Put Chng OI': p_chng_oi_sum,
+                                'Total Chng OI': c_chng_oi_sum + p_chng_oi_sum,
+                                'PCR': round(p_oi_sum / c_oi_sum, 2) if c_oi_sum > 0 else 0
                             })
                         except:
                             continue
@@ -120,10 +131,18 @@ def main():
 
                     with col_line1:
                         st.write("**Change in OI Trend**")
-                        # We use two separate charts if dual axis is not easy, or combine them
-                        # To simulate dual axis, we can show them together or in tabs
-                        # Here we show OI trends and Price trend
-                        st.line_chart(df_hist[['Call Chng OI', 'Put Chng OI', 'Spot Price']])
+
+                        fig1 = make_subplots(specs=[[{"secondary_y": True}]])
+                        fig1.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Call Chng OI'], name="Call Chng OI", line=dict(color='cyan')), secondary_y=False)
+                        fig1.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Put Chng OI'], name="Put Chng OI", line=dict(color='red')), secondary_y=False)
+                        fig1.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Total Chng OI'], name="Total Chng OI", line=dict(color='orange', dash='dash')), secondary_y=False)
+                        fig1.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Spot Price'], name="Spot Price", line=dict(color='black', dash='dot')), secondary_y=True)
+
+                        fig1.update_layout(height=400, margin=dict(l=0, r=0, t=0, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                        fig1.update_yaxes(title_text="OI", secondary_y=False)
+                        fig1.update_yaxes(title_text="Spot Price", secondary_y=True)
+
+                        st.plotly_chart(fig1, use_container_width=True)
 
                     # Row 2: Total OI
                     col_bar2, col_line2 = st.columns([1, 4])
@@ -138,7 +157,28 @@ def main():
 
                     with col_line2:
                         st.write("**Total OI Trend**")
-                        st.line_chart(df_hist[['Call OI', 'Put OI', 'Spot Price']])
+
+                        fig2 = make_subplots(specs=[[{"secondary_y": True}]])
+                        fig2.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Call OI'], name="Call OI", line=dict(color='cyan')), secondary_y=False)
+                        fig2.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Put OI'], name="Put OI", line=dict(color='red')), secondary_y=False)
+                        fig2.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Total OI'], name="Total OI", line=dict(color='orange', dash='dash')), secondary_y=False)
+                        fig2.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Spot Price'], name="Spot Price", line=dict(color='black', dash='dot')), secondary_y=True)
+
+                        fig2.update_layout(height=400, margin=dict(l=0, r=0, t=0, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                        fig2.update_yaxes(title_text="OI", secondary_y=False)
+                        fig2.update_yaxes(title_text="Spot Price", secondary_y=True)
+
+                        st.plotly_chart(fig2, use_container_width=True)
+
+                    # Row 3: PCR Trend
+                    st.write("**PCR & Price Trend**")
+                    fig3 = make_subplots(specs=[[{"secondary_y": True}]])
+                    fig3.add_trace(go.Scatter(x=df_hist.index, y=df_hist['PCR'], name="PCR", line=dict(color='green')), secondary_y=False)
+                    fig3.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Spot Price'], name="Spot Price", line=dict(color='black', dash='dot')), secondary_y=True)
+                    fig3.update_layout(height=400, margin=dict(l=0, r=0, t=0, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                    fig3.update_yaxes(title_text="PCR", secondary_y=False)
+                    fig3.update_yaxes(title_text="Spot Price", secondary_y=True)
+                    st.plotly_chart(fig3, use_container_width=True)
 
             time.sleep(refresh_rate)
             st.rerun()
