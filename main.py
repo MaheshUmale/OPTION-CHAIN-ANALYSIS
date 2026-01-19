@@ -79,7 +79,8 @@ def main():
 
                 # Filter rows near ATM
                 atm_strike = round(spot_price / 50) * 50 if "Nifty 50" in symbol else round(spot_price / 100) * 100
-                df_filtered = df_display[(df_display['Strike Price'] >= atm_strike - 500) & (df_display['Strike Price'] <= atm_strike + 500)]
+                diffStrike = 500 if "Nifty 50" in symbol else 1000
+                df_filtered = df_display[(df_display['Strike Price'] >= atm_strike - diffStrike) & (df_display['Strike Price'] <= atm_strike + diffStrike)]
 
                 st.dataframe(df_filtered, use_container_width=True, height=600)
 
