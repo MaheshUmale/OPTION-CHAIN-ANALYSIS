@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import norm
 from upstox_engine import UpstoxEngine
-from database import init_db, save_snapshot
+from database import init_db, save_snapshot, get_latest_snapshot
 import config
 
 # --- MATH ENGINE ---
@@ -79,6 +79,9 @@ def process_and_save():
             print(f"[{datetime.datetime.now()}] Fetching {symbol} for {expiry}")
 
             try:
+                # Get previous snapshot for momentum calculation
+                _, prev_spot, prev_df = get_latest_snapshot(symbol, expiry)
+
                 spot_price = engine.get_spot_price(symbol)
                 if spot_price == 0:
                     print(f"  -> Failed to get spot price for {symbol}")
@@ -112,14 +115,31 @@ def process_and_save():
                     p_chng_oi = p_oi - pe_market.get('prev_oi', 0)
                     p_chng = p_ltp - pe_market.get('close_price', 0)
 
+                    # --- PRD Analysis: Trend based on PREVIOUS snapshot ---
+                    c_trend = "Neutral"
+                    p_trend = "Neutral"
+                    if prev_df is not None:
+                        prev_strike_data = prev_df[prev_df['strike'] == strike]
+                        if not prev_strike_data.empty:
+                            # CE Momentum
+                            c_p_diff = c_ltp - prev_strike_data['c_ltp'].values[0]
+                            c_oi_diff = c_oi - prev_strike_data['c_oi'].values[0]
+                            c_trend = get_smart_trend(c_p_diff, c_oi_diff)
+
+                            # PE Momentum
+                            p_p_diff = p_ltp - prev_strike_data['p_ltp'].values[0]
+                            p_oi_diff = p_oi - prev_strike_data['p_oi'].values[0]
+                            p_trend = get_smart_trend(p_p_diff, p_oi_diff)
+                    else:
+                        # Fallback to daily trend if no previous snapshot
+                        c_trend = get_smart_trend(c_chng, c_chng_oi)
+                        p_trend = get_smart_trend(p_chng, p_chng_oi)
+
                     c_iv = get_implied_volatility(c_ltp, spot_price, strike, T, config.RISK_FREE_RATE, 'CE') * 100
                     p_iv = get_implied_volatility(p_ltp, spot_price, strike, T, config.RISK_FREE_RATE, 'PE') * 100
 
                     c_greeks = calculate_greeks(spot_price, strike, T, config.RISK_FREE_RATE, c_iv/100, 'CE')
                     p_greeks = calculate_greeks(spot_price, strike, T, config.RISK_FREE_RATE, p_iv/100, 'PE')
-
-                    c_trend = get_smart_trend(c_chng, c_chng_oi)
-                    p_trend = get_smart_trend(p_chng, p_chng_oi)
 
                     clean_data.append({
                         'strike': strike, 'c_ltp': c_ltp, 'c_oi': c_oi, 'c_chng_oi': c_chng_oi, 'c_iv': round(c_iv, 2),
