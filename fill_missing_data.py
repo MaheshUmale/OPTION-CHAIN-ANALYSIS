@@ -151,29 +151,15 @@ def process_symbol(config_item, conn):
 
         if clean_data:
             df = pd.DataFrame(clean_data)
+            # Use INSERT OR IGNORE to prevent overwriting existing 1-minute data
             cursor.execute('''
-                INSERT INTO option_chain_snapshots (timestamp, symbol, expiry, spot_price, data_json)
+                INSERT OR IGNORE INTO option_chain_snapshots (timestamp, symbol, expiry, spot_price, data_json)
                 VALUES (?, ?, ?, ?, ?)
             ''', (timestamp_str, symbol, expiry, spot_price, df.to_json(orient='records')))
     conn.commit()
 
 def main():
     conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    # Initialize/Reset table
-    # cursor.execute('DROP TABLE IF EXISTS option_chain_snapshots')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS option_chain_snapshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp DATETIME,
-            symbol TEXT,
-            expiry TEXT,
-            spot_price REAL,
-            data_json TEXT
-        )
-    ''')
-    conn.commit()
 
     for config_item in TRACKED_SYMBOLS:
         process_symbol(config_item, conn)
