@@ -139,8 +139,8 @@ def main():
                         fig1.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Spot Price'], name="Spot Price", line=dict(color='black', dash='dot')), secondary_y=True)
 
                         fig1.update_layout(height=400, margin=dict(l=0, r=0, t=0, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                        fig1.update_yaxes(title_text="OI", secondary_y=False)
-                        fig1.update_yaxes(title_text="Spot Price", secondary_y=True)
+                        fig1.update_yaxes(title_text="OI", secondary_y=False, autorange=True, zeroline=False, rangemode='normal')
+                        fig1.update_yaxes(title_text="Spot Price", secondary_y=True, autorange=True, zeroline=False, rangemode='normal')
 
                         st.plotly_chart(fig1, use_container_width=True)
 
@@ -165,8 +165,8 @@ def main():
                         fig2.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Spot Price'], name="Spot Price", line=dict(color='black', dash='dot')), secondary_y=True)
 
                         fig2.update_layout(height=400, margin=dict(l=0, r=0, t=0, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                        fig2.update_yaxes(title_text="OI", secondary_y=False)
-                        fig2.update_yaxes(title_text="Spot Price", secondary_y=True)
+                        fig2.update_yaxes(title_text="OI", secondary_y=False, autorange=True, zeroline=False, rangemode='normal')
+                        fig2.update_yaxes(title_text="Spot Price", secondary_y=True, autorange=True, zeroline=False, rangemode='normal')
 
                         st.plotly_chart(fig2, use_container_width=True)
 
@@ -176,8 +176,8 @@ def main():
                     fig3.add_trace(go.Scatter(x=df_hist.index, y=df_hist['PCR'], name="PCR", line=dict(color='green')), secondary_y=False)
                     fig3.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Spot Price'], name="Spot Price", line=dict(color='black', dash='dot')), secondary_y=True)
                     fig3.update_layout(height=400, margin=dict(l=0, r=0, t=0, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                    fig3.update_yaxes(title_text="PCR", secondary_y=False)
-                    fig3.update_yaxes(title_text="Spot Price", secondary_y=True)
+                    fig3.update_yaxes(title_text="PCR", secondary_y=False, autorange=True, zeroline=False, rangemode='normal')
+                    fig3.update_yaxes(title_text="Spot Price", secondary_y=True, autorange=True, zeroline=False, rangemode='normal')
                     st.plotly_chart(fig3, use_container_width=True)
 
             time.sleep(refresh_rate)
