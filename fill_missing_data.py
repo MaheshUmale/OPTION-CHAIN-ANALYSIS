@@ -175,7 +175,7 @@ def process_symbol(config_item, conn):
         if clean_data:
             df = pd.DataFrame(clean_data)
             cursor.execute('''
-                INSERT  INTO option_chain_snapshots (timestamp, symbol, expiry, spot_price, data_json)
+                INSERT OR IGNORE INTO option_chain_snapshots (timestamp, symbol, expiry, spot_price, data_json)
                 VALUES (?, ?, ?, ?, ?)
             ''', (timestamp_str, symbol, expiry, spot_price, df.to_json(orient='records')))
             conn.commit()

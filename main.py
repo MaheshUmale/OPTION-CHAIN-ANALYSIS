@@ -9,185 +9,115 @@ from database import get_latest_snapshot, get_historical_snapshots, init_db
 import config
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Upstox Option Chain Matrix", layout="wide")
+st.set_page_config(page_title="Money Matrix: Smart Option Chain", layout="wide")
 
 def main():
-    st.title("🚀 Money Matrix: Upstox Option Chain Dashboard")
+    st.title("🚀 Money Matrix Dashboard")
 
     # Initialize DB
     init_db()
 
     # Sidebar for config
-    st.sidebar.header("Configuration")
-    symbol = st.sidebar.selectbox("Select Symbol", [
+    st.sidebar.header("Settings")
+    symbol = st.sidebar.selectbox("Symbol", [
         "NSE_INDEX|Nifty 50",
         "NSE_INDEX|Nifty Bank",
         "NSE_INDEX|Nifty Fin Service"
     ], index=0)
 
-    # User requested specific expiries
+    # Default expiries for the current context
     default_expiry = "2026-01-20" if "Nifty 50" in symbol else "2026-01-27"
+    expiry = st.sidebar.text_input("Expiry Date", value=default_expiry)
+    refresh_rate = st.sidebar.slider("Auto Refresh (sec)", 10, 60, 30)
 
-    expiry = st.sidebar.text_input("Expiry Date (YYYY-MM-DD)", value=default_expiry)
-    refresh_rate = st.sidebar.slider("Refresh Rate (seconds)", 5, 60, 10)
-
-    placeholder = st.empty()
+    # Main view tabs
+    tab_dashboard, tab_chain, tab_trends = st.tabs(["📊 Dashboard", "⛓️ Option Chain", "📈 Trends"])
 
     while True:
-        with placeholder.container():
-            # Read from DB instead of API
-            timestamp, spot_price, df = get_latest_snapshot(symbol, expiry)
+        # Read from DB
+        timestamp, spot_price, df = get_latest_snapshot(symbol, expiry)
 
-            if df is None or df.empty:
-                st.warning(f"No data found in database for {symbol} / {expiry}. Make sure 'data_worker.py' is running.")
-                st.info("The worker fetches data every 60 seconds.")
-            else:
-                # Summary Metrics
-                # Re-calculate PCR and Support/Resistance from the retrieved data
-                pcr = round(df['p_oi'].sum() / df['c_oi'].sum(), 2) if df['c_oi'].sum() > 0 else 0
-                if pcr >= 1.2:
-                    sentiment = "BULLISH"
-                elif pcr <= 0.7:
-                    sentiment = "BEARISH"
-                else:
-                    sentiment = "NEUTRAL"
+        if df is None or df.empty:
+            st.warning(f"Waiting for data for {symbol} ({expiry})...")
+        else:
+            # Metrics Calculation
+            total_c_oi = df['c_oi'].sum()
+            total_p_oi = df['p_oi'].sum()
+            pcr = round(total_p_oi / total_c_oi, 2) if total_c_oi > 0 else 0
+            sentiment = "BULLISH" if pcr >= 1.2 else "BEARISH" if pcr <= 0.7 else "NEUTRAL"
 
-                max_ce_oi_idx = df['c_oi'].idxmax()
-                max_pe_oi_idx = df['p_oi'].idxmax()
-                resistance = df.iloc[max_ce_oi_idx]['strike']
-                support = df.iloc[max_pe_oi_idx]['strike']
+            res_strike = df.iloc[df['c_oi'].idxmax()]['strike']
+            sup_strike = df.iloc[df['p_oi'].idxmax()]['strike']
 
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Spot Price", f"{spot_price:.2f}")
-                col2.metric("PCR", f"{pcr} ({sentiment})")
-                col3.metric("Support", f"{support}")
-                col4.metric("Resistance", f"{resistance}")
+            # --- TAB 1: DASHBOARD ---
+            with tab_dashboard:
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Spot Price", f"{spot_price:,.2f}")
+                m2.metric("PCR (Sentiment)", f"{pcr} ({sentiment})")
+                m3.metric("Support", f"{sup_strike:,.0f}")
+                m4.metric("Resistance", f"{res_strike:,.0f}")
 
-                ist_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5, minutes=30)
-                st.write(f"Data Last Captured: {timestamp} | Current Time (IST): {ist_now.strftime('%H:%M:%S')}")
+                st.caption(f"Last update: {timestamp} IST")
 
-                # Rename columns for display
-                display_cols = {
-                    'c_oi': 'Call OI', 'c_chng_oi': 'Call Chng OI', 'c_iv': 'Call IV',
-                    'c_trend': 'Call Trend', 'c_delta': 'Call Delta', 'c_theta': 'Call Theta',
-                    'c_ltp': 'Call LTP', 'strike': 'Strike Price',
-                    'p_ltp': 'Put LTP', 'p_delta': 'Put Delta', 'p_theta': 'Put Theta',
-                    'p_trend': 'Put Trend', 'p_iv': 'Put IV', 'p_chng_oi': 'Put Chng OI', 'p_oi': 'Put OI'
-                }
+                st.subheader("Market Flow Momentum")
+                c_chng = df['c_chng_oi'].sum()
+                p_chng = df['p_chng_oi'].sum()
 
-                df_display = df.rename(columns=display_cols)
+                f1, f2 = st.columns(2)
+                with f1:
+                    st.write(f"**Call Momentum:** {'🔴 Bearish' if c_chng > 0 else '🟢 Bullish/Covering'} ({c_chng:,.0f} OI)")
+                with f2:
+                    st.write(f"**Put Momentum:** {'🟢 Bullish' if p_chng > 0 else '🔴 Bearish/Unwinding'} ({p_chng:,.0f} OI)")
 
-                # Filter rows near ATM
-                atm_strike = round(spot_price / 50) * 50 if "Nifty 50" in symbol else round(spot_price / 100) * 100
-                diffStrike = 500 if "Nifty 50" in symbol else 1000
-                df_filtered = df_display[(df_display['Strike Price'] >= atm_strike - diffStrike) & (df_display['Strike Price'] <= atm_strike + diffStrike)]
+            # --- TAB 2: OPTION CHAIN ---
+            with tab_chain:
+                # Grouped columns for "Money Matrix" style
+                df_view = df[['c_ltp', 'c_oi', 'c_chng_oi', 'c_trend', 'strike', 'p_trend', 'p_chng_oi', 'p_oi', 'p_ltp']].copy()
+                df_view.columns = ['C_LTP', 'C_OI', 'C_Chng', 'C_Flow', 'STRIKE', 'P_Flow', 'P_Chng', 'P_OI', 'P_LTP']
 
-                st.dataframe(df_filtered, use_container_width=True, height=600)
+                # ATM Centering
+                atm = round(spot_price / 50) * 50 if "Nifty 50" in symbol else round(spot_price / 100) * 100
+                rng = 500 if "Nifty 50" in symbol else 1000
+                df_atm = df_view[(df_view['STRIKE'] >= atm - rng) & (df_view['STRIKE'] <= atm + rng)]
 
-                # --- Charts Section ---
-                st.divider()
-                st.subheader("Time-Based Analysis & OI Distribution")
+                st.dataframe(df_atm.style.format(precision=0, subset=['C_OI', 'C_Chng', 'P_Chng', 'P_OI', 'STRIKE'])
+                                    .format(precision=2, subset=['C_LTP', 'P_LTP']),
+                             use_container_width=True, height=600)
 
-                # Fetch historical data
-                hist_df = get_historical_snapshots(symbol, expiry)
-
-                if not hist_df.empty:
-                    processed_hist = []
-                    for _, row in hist_df.iterrows():
+            # --- TAB 3: HISTORICAL TRENDS ---
+            with tab_trends:
+                hist = get_historical_snapshots(symbol, expiry)
+                if not hist.empty:
+                    processed = []
+                    for _, row in hist.iterrows():
                         try:
-                            data = pd.read_json(io.StringIO(row['data_json']))
-                            c_oi_sum = data['c_oi'].sum()
-                            p_oi_sum = data['p_oi'].sum()
-                            c_chng_oi_sum = data['c_chng_oi'].sum()
-                            p_chng_oi_sum = data['p_chng_oi'].sum()
-
-                            processed_hist.append({
+                            d = pd.read_json(io.StringIO(row['data_json']))
+                            processed.append({
                                 'Time': pd.to_datetime(row['timestamp']),
-                                'Spot Price': row['spot_price'],
-                                'Call OI': c_oi_sum,
-                                'Put OI': p_oi_sum,
-                                'Total OI': c_oi_sum + p_oi_sum,
-                                'Call Chng OI': c_chng_oi_sum,
-                                'Put Chng OI': p_chng_oi_sum,
-                                'Total Chng OI': c_chng_oi_sum + p_chng_oi_sum,
-                                'PCR': round(p_oi_sum / c_oi_sum, 2) if c_oi_sum > 0 else 0
+                                'Spot': row['spot_price'],
+                                'C_Flow': d['c_chng_oi'].sum(),
+                                'P_Flow': d['p_chng_oi'].sum(),
+                                'PCR': round(d['p_oi'].sum() / d['c_oi'].sum(), 2) if d['c_oi'].sum() > 0 else 0
                             })
-                        except:
-                            continue
+                        except: continue
 
-                    df_hist = pd.DataFrame(processed_hist)
-                    df_hist.set_index('Time', inplace=True)
+                    df_hist = pd.DataFrame(processed).set_index('Time')
+                    df_hist['C_Flow_Cum'] = df_hist['C_Flow'].cumsum()
+                    df_hist['P_Flow_Cum'] = df_hist['P_Flow'].cumsum()
 
-                    # Calculate cumulative changes for trend lines
-                    df_hist['Call OI Cum Chng'] = df_hist['Call Chng OI'].cumsum()
-                    df_hist['Put OI Cum Chng'] = df_hist['Put Chng OI'].cumsum()
-                    df_hist['Total OI Cum Chng'] = df_hist['Total Chng OI'].cumsum()
+                    fig = make_subplots(specs=[[{"secondary_y": True}]])
+                    fig.add_trace(go.Scatter(x=df_hist.index, y=df_hist['C_Flow_Cum'], name="Call Flow", line=dict(color='cyan')), secondary_y=False)
+                    fig.add_trace(go.Scatter(x=df_hist.index, y=df_hist['P_Flow_Cum'], name="Put Flow", line=dict(color='red')), secondary_y=False)
+                    fig.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Spot'], name="Spot Price", line=dict(color='gold', dash='dot')), secondary_y=True)
 
-                    # Layout like the requested image
-                    # Row 1: Change in OI
-                    col_bar1, col_line1 = st.columns([1, 4])
+                    fig.update_layout(height=500, template="plotly_dark", legend=dict(orientation="h", y=1.1))
+                    st.plotly_chart(fig, use_container_width=True)
 
-                    with col_bar1:
-                        st.write("**Change in OI**")
-                        latest_chng = {
-                            'Type': ['CALL', 'PUT'],
-                            'Value': [df['c_chng_oi'].sum(), df['p_chng_oi'].sum()]
-                        }
-                        st.bar_chart(pd.DataFrame(latest_chng).set_index('Type'))
+                    st.subheader("Sentiment (PCR)")
+                    st.line_chart(df_hist['PCR'])
 
-                    with col_line1:
-                        st.write("**Change in OI Trend**")
-
-                        fig1 = make_subplots(specs=[[{"secondary_y": True}]])
-                        fig1.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Call OI Cum Chng'], name="Call OI Chng", line=dict(color='cyan')), secondary_y=False)
-                        fig1.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Put OI Cum Chng'], name="Put OI Chng", line=dict(color='red')), secondary_y=False)
-                        fig1.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Total OI Cum Chng'], name="Total OI Chng", line=dict(color='orange', dash='dash')), secondary_y=False)
-                        fig1.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Spot Price'], name="Spot Price", line=dict(color='#ffd700', dash='dot')), secondary_y=True)
-
-                        fig1.update_layout(height=400, margin=dict(l=0, r=0, t=0, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                        fig1.update_yaxes(title_text="OI", secondary_y=False, autorange=True, zeroline=False, rangemode='normal')
-                        fig1.update_yaxes(title_text="Spot Price", secondary_y=True, autorange=True, zeroline=False, rangemode='normal')
-
-                        st.plotly_chart(fig1, use_container_width=True)
-
-                    # Row 2: Total OI
-                    col_bar2, col_line2 = st.columns([1, 4])
-
-                    with col_bar2:
-                        st.write("**Total OI**")
-                        latest_total = {
-                            'Type': ['CALL', 'PUT'],
-                            'Value': [df['c_oi'].sum(), df['p_oi'].sum()]
-                        }
-                        st.bar_chart(pd.DataFrame(latest_total).set_index('Type'))
-
-                    with col_line2:
-                        st.write("**Total OI Trend**")
-
-                        fig2 = make_subplots(specs=[[{"secondary_y": True}]])
-                        fig2.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Call OI'], name="Call OI", line=dict(color='cyan')), secondary_y=False)
-                        fig2.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Put OI'], name="Put OI", line=dict(color='red')), secondary_y=False)
-                        fig2.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Total OI'], name="Total OI", line=dict(color='orange', dash='dash')), secondary_y=False)
-                        fig2.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Spot Price'], name="Spot Price", line=dict(color='#ffd700', dash='dot')), secondary_y=True)
-
-                        fig2.update_layout(height=400, margin=dict(l=0, r=0, t=0, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                        fig2.update_yaxes(title_text="OI", secondary_y=False, autorange=True, zeroline=False, rangemode='normal')
-                        fig2.update_yaxes(title_text="Spot Price", secondary_y=True, autorange=True, zeroline=False, rangemode='normal')
-
-                        st.plotly_chart(fig2, use_container_width=True)
-
-                    # Row 3: PCR Trend
-                    st.write("**PCR & Price Trend**")
-                    fig3 = make_subplots(specs=[[{"secondary_y": True}]])
-                    fig3.add_trace(go.Scatter(x=df_hist.index, y=df_hist['PCR'], name="PCR", line=dict(color='green')), secondary_y=False)
-                    fig3.add_trace(go.Scatter(x=df_hist.index, y=df_hist['Spot Price'], name="Spot Price", line=dict(color='#ffd700', dash='dot')), secondary_y=True)
-                    fig3.update_layout(height=400, margin=dict(l=0, r=0, t=0, b=0), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                    fig3.update_yaxes(title_text="PCR", secondary_y=False, autorange=True, zeroline=False, rangemode='normal')
-                    fig3.update_yaxes(title_text="Spot Price", secondary_y=True, autorange=True, zeroline=False, rangemode='normal')
-                    st.plotly_chart(fig3, use_container_width=True)
-
-            time.sleep(refresh_rate)
-            st.rerun()
+        time.sleep(refresh_rate)
+        st.rerun()
 
 if __name__ == "__main__":
     main()
