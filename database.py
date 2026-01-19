@@ -17,7 +17,8 @@ def init_db():
             symbol TEXT,
             expiry TEXT,
             spot_price REAL,
-            data_json TEXT
+            data_json TEXT,
+            UNIQUE(timestamp, symbol, expiry)
         )
     ''')
 
@@ -40,7 +41,7 @@ def save_snapshot(symbol, expiry, spot_price, df_data):
 
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO option_chain_snapshots (timestamp, symbol, expiry, spot_price, data_json)
+        INSERT OR IGNORE INTO option_chain_snapshots (timestamp, symbol, expiry, spot_price, data_json)
         VALUES (?, ?, ?, ?, ?)
     ''', (timestamp_str, symbol, expiry, spot_price, data_json))
 
