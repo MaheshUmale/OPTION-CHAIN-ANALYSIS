@@ -92,6 +92,13 @@ def process_and_save():
                     print(f"  -> Failed to get chain data for {symbol}")
                     continue
 
+                # Fetch previous snapshot for interval change calculation (today only)
+                _, prev_spot, prev_df = get_latest_snapshot(symbol, expiry, same_day_only=True)
+                prev_data_map = {}
+                if prev_df is not None:
+                    for _, row in prev_df.iterrows():
+                        prev_data_map[row['strike']] = row
+
                 T = get_time_to_expiry(expiry)
                 clean_data = []
 
@@ -107,13 +114,22 @@ def process_and_save():
 
                     c_ltp = ce_market.get('ltp', 0)
                     c_oi = ce_market.get('oi', 0)
-                    c_chng_oi = c_oi - ce_market.get('prev_oi', 0)
-                    c_chng = c_ltp - ce_market.get('close_price', 0)
 
                     p_ltp = pe_market.get('ltp', 0)
                     p_oi = pe_market.get('oi', 0)
-                    p_chng_oi = p_oi - pe_market.get('prev_oi', 0)
-                    p_chng = p_ltp - pe_market.get('close_price', 0)
+
+                    # Interval change calculation
+                    if strike in prev_data_map:
+                        prev_item = prev_data_map[strike]
+                        c_chng_oi = c_oi - prev_item.get('c_oi', c_oi)
+                        p_chng_oi = p_oi - prev_item.get('p_oi', p_oi)
+                        c_chng_price = c_ltp - prev_item.get('c_ltp', c_ltp)
+                        p_chng_price = p_ltp - prev_item.get('p_ltp', p_ltp)
+                    else:
+                        c_chng_oi = 0
+                        p_chng_oi = 0
+                        c_chng_price = 0
+                        p_chng_price = 0
 
                     # --- PRD Analysis: Trend based on PREVIOUS snapshot ---
                     c_trend = "Neutral"
@@ -140,6 +156,10 @@ def process_and_save():
 
                     c_greeks = calculate_greeks(spot_price, strike, T, config.RISK_FREE_RATE, c_iv/100, 'CE')
                     p_greeks = calculate_greeks(spot_price, strike, T, config.RISK_FREE_RATE, p_iv/100, 'PE')
+
+                    # Smart trend based on interval momentum
+                    c_trend = get_smart_trend(c_chng_price, c_chng_oi)
+                    p_trend = get_smart_trend(p_chng_price, p_chng_oi)
 
                     clean_data.append({
                         'strike': strike, 'c_ltp': c_ltp, 'c_oi': c_oi, 'c_chng_oi': c_chng_oi, 'c_iv': round(c_iv, 2),

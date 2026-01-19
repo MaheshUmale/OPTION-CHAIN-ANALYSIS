@@ -58,25 +58,16 @@ def process_symbol(config_item, conn):
     strikes = config_item['strikes']
 
     all_data = {} # (interval) -> {strike -> {ce_data, pe_data}}
-    prev_oi = {} # {strike -> {ce_oi, pe_oi}}
 
     print(f"Fetching data for {symbol}...")
     for strike in strikes:
         print(f"  Strike {strike}...", end="", flush=True)
         ce_json = fetch_trendlyne_data(trendlyne_expiry, trendlyne_symbol, strike, "call")
-        time.sleep(0.3)
+        time.sleep(0.2)
         pe_json = fetch_trendlyne_data(trendlyne_expiry, trendlyne_symbol, strike, "put")
-        time.sleep(0.3)
+        time.sleep(0.2)
 
         if ce_json and pe_json:
-            ce_contract = ce_json.get('body', {}).get('contractData', {})
-            pe_contract = pe_json.get('body', {}).get('contractData', {})
-
-            prev_oi[strike] = {
-                'ce': ce_contract.get('oi_change_gross', 0),
-                'pe': pe_contract.get('oi_change_gross', 0)
-            }
-
             ce_intervals = ce_json.get('body', {}).get('data_v2', [])
             pe_intervals = pe_json.get('body', {}).get('data_v2', [])
 
@@ -127,12 +118,13 @@ def process_symbol(config_item, conn):
 
             c_ltp = ce.get('close_price')
             c_oi = ce.get('oi', 0)
-            c_chng_oi =  prev_oi.get(strike, {}).get('ce', 0)
+            # Use interval delta directly from Trendlyne
+            c_chng_oi = ce.get('oi_change_gross', 0)
             c_trend = ce.get('buildup') or "Neutral"
 
             p_ltp = pe.get('close_price')
             p_oi = pe.get('oi', 0)
-            p_chng_oi = prev_oi.get(strike, {}).get('pe', 0)
+            p_chng_oi = pe.get('oi_change_gross', 0)
             p_trend = pe.get('buildup') or "Neutral"
 
             if c_ltp is None or p_ltp is None: continue
