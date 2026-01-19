@@ -89,8 +89,8 @@ def process_and_save():
                     print(f"  -> Failed to get chain data for {symbol}")
                     continue
 
-                # Fetch previous snapshot for interval change calculation
-                _, prev_spot, prev_df = get_latest_snapshot(symbol, expiry)
+                # Fetch previous snapshot for interval change calculation (today only)
+                _, prev_spot, prev_df = get_latest_snapshot(symbol, expiry, same_day_only=True)
                 prev_data_map = {}
                 if prev_df is not None:
                     for _, row in prev_df.iterrows():

@@ -48,18 +48,29 @@ def save_snapshot(symbol, expiry, spot_price, df_data):
     conn.commit()
     conn.close()
 
-def get_latest_snapshot(symbol, expiry):
+def get_latest_snapshot(symbol, expiry, same_day_only=False):
     """
     Retrieves the latest snapshot for a given symbol and expiry.
+    If same_day_only is True, only returns if snapshot is from today.
     """
     conn = sqlite3.connect(DB_NAME)
-    query = '''
+
+    params = [symbol, expiry]
+    where_clause = "WHERE symbol = ? AND expiry = ?"
+
+    if same_day_only:
+        ist_now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5, minutes=30)
+        today_str = ist_now.strftime('%Y-%m-%d')
+        where_clause += " AND timestamp LIKE ?"
+        params.append(today_str + '%')
+
+    query = f'''
         SELECT timestamp, spot_price, data_json
         FROM option_chain_snapshots
-        WHERE symbol = ? AND expiry = ?
+        {where_clause}
         ORDER BY timestamp DESC LIMIT 1
     '''
-    df = pd.read_sql_query(query, conn, params=(symbol, expiry))
+    df = pd.read_sql_query(query, conn, params=params)
     conn.close()
 
     if not df.empty:
